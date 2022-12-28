@@ -14,7 +14,7 @@ def conv_1x1_bn(inp, oup):
 
 def conv_nxn_bn(inp, oup, kernal_size=3, stride=1):
     return nn.Sequential(
-        nn.Conv2d(inp, oup, kernal_size, stride, 1, bias=False),
+        nn.Conv2d(inp, oup, kernal_size, stride, padding=1, bias=False),
         nn.BatchNorm2d(oup),
         nn.SiLU()
     )
@@ -172,14 +172,16 @@ class MobileViT(nn.Module):
         assert ih % ph == 0 and iw % pw == 0
 
         L = [2, 4, 3]
-
+    
         self.conv1 = conv_nxn_bn(3, channels[0], stride=2)
 
         self.mv2 = nn.ModuleList([])
         self.mv2.append(MV2Block(channels[0], channels[1], 1, expansion))
         self.mv2.append(MV2Block(channels[1], channels[2], 2, expansion))
+
         self.mv2.append(MV2Block(channels[2], channels[3], 1, expansion))
-        self.mv2.append(MV2Block(channels[2], channels[3], 1, expansion))   # Repeat
+        self.mv2.append(MV2Block(channels[2], channels[3], 1, expansion))
+
         self.mv2.append(MV2Block(channels[3], channels[4], 2, expansion))
         self.mv2.append(MV2Block(channels[5], channels[6], 2, expansion))
         self.mv2.append(MV2Block(channels[7], channels[8], 2, expansion))
@@ -222,5 +224,10 @@ def build_MobileVIT(args, config):
     dims = config.get("dims")
     channels = config.get("channels")
     expansion = config.get("expansion")
+    img_size = (args.resize, args.resize)
     
-    return MobileViT((256,256), dims, channels, num_classes=num_classes, expansion=expansion)
+    return MobileViT(image_size=img_size,
+                     dims=dims,
+                     channels=channels,
+                     num_classes=num_classes,
+                     expansion=expansion)

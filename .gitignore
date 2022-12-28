@@ -1,3 +1,4 @@
 *.pyc
 *.txt
-utils.py
+*.pth
+save

@@ -8,112 +8,68 @@ from typing import Optional
 import sys
 import os
 
-text_colors = {
-    "logs": "\033[34m",  # 033 is the escape code and 34 is the color code
-    "info": "\033[32m",
-    "warning": "\033[33m",
-    "debug": "\033[93m",
-    "error": "\033[31m",
-    "bold": "\033[1m",
-    "end_color": "\033[0m",
-    "light_red": "\033[36m",
-}
+import torch
+import torchvision
+import torchvision.transforms as transforms
+
+mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
 
-def get_curr_time_stamp() -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S")
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+def make_dataset(args):
+    # make transforms
+    train_transform = transforms.Compose([
+                                transforms.Resize(args.resize),
+                                transforms.RandomHorizontalFlip(0.5),
+                                transforms.ToTensor(),
+                                transforms.Normalize(mean=mean, std=std)
+                                ])
 
-def error(message: str) -> None:
-    time_stamp = get_curr_time_stamp()
-    error_str = (
-        text_colors["error"]
-        + text_colors["bold"]
-        + "ERROR  "
-        + text_colors["end_color"]
-    )
-    print("{} - {} - {}".format(time_stamp, error_str, message), flush=True)
-    print("{} - {} - {}".format(time_stamp, error_str, "Exiting!!!"), flush=True)
-    exit(-1)
+    test_transform = transforms.Compose([
+                                transforms.Resize(args.resize),
+                                transforms.ToTensor(),
+                                transforms.Normalize(mean=mean, std=std)
+                                ])
 
+    if args.dataset_name == 'cifar10':
+        # make datasets
+        trainset = torchvision.datasets.CIFAR10(root=args.data,
+                                               train=True,
+                                               download=False,
+                                               transform=train_transform)
 
-def color_text(in_text: str) -> str:
-    return text_colors["light_red"] + in_text + text_colors["end_color"]
+        testset = torchvision.datasets.CIFAR10(root=args.data,
+                                               train=False,
+                                               download=False,
+                                               transform=test_transform)
 
+    elif args.dataset_name == 'cifar100':
+        # make datasets
+        trainset = torchvision.datasets.CIFAR100(root=args.data,
+                                                train=True,
+                                                download=False,
+                                                transform=train_transform)
 
-def log(message: str) -> None:
-    time_stamp = get_curr_time_stamp()
-    log_str = (
-        text_colors["logs"] + text_colors["bold"] + "LOGS   " + text_colors["end_color"]
-    )
-    print("{} - {} - {}".format(time_stamp, log_str, message))
+        testset = torchvision.datasets.CIFAR100(root=args.data,
+                                                train=False,
+                                                download=False,
+                                                transform=test_transform)
+        
+    return trainset, testset
 
+def make_dataloader(args, trainset, testset):
+    # make dataloader
+    trainloader = torch.utils.data.DataLoader(trainset,
+                                            batch_size=args.train_batch_size,
+                                            shuffle=True,
+                                            drop_last=True,
+                                            num_workers=2)
 
-def warning(message: str) -> None:
-    time_stamp = get_curr_time_stamp()
-    warn_str = (
-        text_colors["warning"]
-        + text_colors["bold"]
-        + "WARNING"
-        + text_colors["end_color"]
-    )
-    print("{} - {} - {}".format(time_stamp, warn_str, message))
-
-
-def info(message: str, print_line: Optional[bool] = False) -> None:
-    time_stamp = get_curr_time_stamp()
-    info_str = (
-        text_colors["info"] + text_colors["bold"] + "INFO   " + text_colors["end_color"]
-    )
-    print("{} - {} - {}".format(time_stamp, info_str, message))
-    if print_line:
-        double_dash_line(dashes=150)
-
-
-def debug(message: str) -> None:
-    time_stamp = get_curr_time_stamp()
-    log_str = (
-        text_colors["debug"]
-        + text_colors["bold"]
-        + "DEBUG   "
-        + text_colors["end_color"]
-    )
-    print("{} - {} - {}".format(time_stamp, log_str, message))
-
-
-def double_dash_line(dashes: Optional[int] = 75) -> None:
-    print(text_colors["error"] + "=" * dashes + text_colors["end_color"])
-
-
-def singe_dash_line(dashes: Optional[int] = 67) -> None:
-    print("-" * dashes)
-
-
-def print_header(header: str) -> None:
-    double_dash_line()
-    print(
-        text_colors["info"]
-        + text_colors["bold"]
-        + "=" * 50
-        + str(header)
-        + text_colors["end_color"]
-    )
-    double_dash_line()
-
-
-def print_header_minor(header: str) -> None:
-    print(
-        text_colors["warning"]
-        + text_colors["bold"]
-        + "=" * 25
-        + str(header)
-        + text_colors["end_color"]
-    )
-
-
-def disable_printing():
-    sys.stdout = open(os.devnull, "w")
-
-
-def enable_printing():
-    sys.stdout = sys.__stdout__
+    testloader = torch.utils.data.DataLoader(testset,
+                                             batch_size=args.test_batch_size,
+                                             shuffle=False,
+                                             drop_last=True,
+                                             num_workers=2)
+    return trainloader, testloader
