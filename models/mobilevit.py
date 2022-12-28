@@ -233,9 +233,3 @@ def mobilevit_s():
     dims = [144, 192, 240]
     channels = [16, 32, 64, 64, 96, 96, 128, 128, 160, 160, 640]
     return MobileViT((256, 256), dims, channels, num_classes=1000)
-
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-

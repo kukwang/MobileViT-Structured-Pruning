@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python3 main.py --config ./models/configs/mobilevit.py --help

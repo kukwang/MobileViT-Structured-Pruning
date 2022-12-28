@@ -1,2 +1,3 @@
 # KICS-2023-mine
-KICS Winter Conference 2023
+MobileViT pruning
+For KICS Winter Conference 2023
