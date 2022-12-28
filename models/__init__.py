@@ -1,3 +1,3 @@
-from .mobilevit import MobileViT
-from .configs.mobilevit import get_configs
+from .mobilevit import build_MobileVIT
+from .configs.mobilevit import get_model_config
 

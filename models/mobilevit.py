@@ -217,19 +217,10 @@ class MobileViT(nn.Module):
         return x
 
 
-def mobilevit_xxs():
-    dims = [64, 80, 96]
-    channels = [16, 16, 24, 24, 48, 48, 64, 64, 80, 80, 320]
-    return MobileViT((256, 256), dims, channels, num_classes=1000, expansion=2)
-
-
-def mobilevit_xs():
-    dims = [96, 120, 144]
-    channels = [16, 32, 48, 48, 64, 64, 80, 80, 96, 96, 384]
-    return MobileViT((256, 256), dims, channels, num_classes=1000)
-
-
-def mobilevit_s():
-    dims = [144, 192, 240]
-    channels = [16, 32, 64, 64, 96, 96, 128, 128, 160, 160, 640]
-    return MobileViT((256, 256), dims, channels, num_classes=1000)
+def build_MobileVIT(args, config):
+    num_classes = args.classes
+    dims = config.get("dims")
+    channels = config.get("channels")
+    expansion = config.get("expansion")
+    
+    return MobileViT((256,256), dims, channels, num_classes=num_classes, expansion=expansion)
