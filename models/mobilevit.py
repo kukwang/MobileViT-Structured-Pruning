@@ -48,7 +48,7 @@ class FeedForward(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
         super().__init__()
-        inner_dim = dim_head *  heads
+        inner_dim = dim_head * heads
         project_out = not (heads == 1 and dim_head == dim)
 
         self.heads = heads
@@ -171,7 +171,7 @@ class MobileViT(nn.Module):
         ph, pw = patch_size
         assert ih % ph == 0 and iw % pw == 0
 
-        L = [2, 4, 3]
+        L = [2, 4, 3]   # repeated transformer block number
     
         self.conv1 = conv_nxn_bn(3, channels[0], stride=2)
 
@@ -197,21 +197,22 @@ class MobileViT(nn.Module):
         self.fc = nn.Linear(channels[-1], num_classes, bias=False)
 
     def forward(self, x):
-        x = self.conv1(x)
+        x = self.conv1(x)   # down-sampling
+
         x = self.mv2[0](x)
-
-        x = self.mv2[1](x)
+        x = self.mv2[1](x)  # down-sampling
         x = self.mv2[2](x)
-        x = self.mv2[3](x)      # Repeat
+        x = self.mv2[3](x)
 
-        x = self.mv2[4](x)
+        x = self.mv2[4](x)  # down-sampling
         x = self.mvit[0](x)
 
-        x = self.mv2[5](x)
+        x = self.mv2[5](x)  # down-sampling
         x = self.mvit[1](x)
 
-        x = self.mv2[6](x)
+        x = self.mv2[6](x)  # down-sampling
         x = self.mvit[2](x)
+
         x = self.conv2(x)
 
         x = self.pool(x).view(-1, x.shape[1])

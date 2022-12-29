@@ -25,13 +25,13 @@ def get_model_config(args) -> Dict:
         }
     elif mode == "xs":
         config = {
-            "expansion": 1,
+            "expansion": 4,
             "dims": [96, 120, 144],
             "channels": [16, 32, 48, 48, 64, 64, 80, 80, 96, 96, 384]
         }
     elif mode == "s":
         config = {
-            "expansion": 1,
+            "expansion": 4,
             "dims": [144, 192, 240],
             "channels": [16, 32, 64, 64, 96, 96, 128, 128, 160, 160, 640]
         }
