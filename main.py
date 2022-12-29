@@ -17,7 +17,7 @@ from utils import *
 
 def add_arguments(parser):
     dataset_list = ['cifar10', 'cifar100', 'imagenet']
-    
+
     parser.add_argument('--seed', default=7, type=int, help='random seed')
     parser.add_argument("--local_rank", default=0, type=int)
     parser.add_argument('--device', default='cuda', help='device')

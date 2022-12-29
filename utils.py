@@ -70,7 +70,7 @@ def make_dataset(args):
                                                 transform=test_transform)
 
     if args.train_ratio > 0.0:
-        train_set, val_set = train_val_split(args.train_ratio, )
+        train_set, val_set = train_val_split(args.train_ratio, train_set)
     else:
         val_set = None
            
