@@ -180,23 +180,23 @@ class MobileViT(nn.Module):
         layer1, layer2, layer3, layer4, layer5 = [], [], [], [], []
         
         # output channel: 16(xxs) 32(xs, s)
-        layer1.append(MV2Block(channels[0], channels[1], 1, expansion))
+        layer1.append(MV2Block(channels[0], channels[1], 1, expansion))         # residual connection (only xxs)
 
         # output channel: 24(xxs) 48(xs), 64(s)
-        layer2.append(MV2Block(channels[1], channels[2], 2, expansion))   # downsampling
-        layer2.append(MV2Block(channels[2], channels[3], 1, expansion))
-        layer2.append(MV2Block(channels[2], channels[3], 1, expansion))
+        layer2.append(MV2Block(channels[1], channels[2], 2, expansion))     # downsampling
+        layer2.append(MV2Block(channels[2], channels[3], 1, expansion))         # residual connection
+        layer2.append(MV2Block(channels[2], channels[3], 1, expansion))         # residual connection
 
         # output channel: 48(xxs) 64(xs), 96(s)
-        layer3.append(MV2Block(channels[3], channels[4], 2, expansion))   # downsampling
+        layer3.append(MV2Block(channels[3], channels[4], 2, expansion))     # downsampling
         layer3.append(MobileViTBlock(dims[0], L[0], channels[5], kernel_size, patch_size, int(dims[0]*2)))
 
         # output channel: 64(xxs) 80(xs), 128(s)
-        layer4.append(MV2Block(channels[5], channels[6], 2, expansion))   # downsampling
+        layer4.append(MV2Block(channels[5], channels[6], 2, expansion))     # downsampling
         layer4.append(MobileViTBlock(dims[1], L[1], channels[7], kernel_size, patch_size, int(dims[1]*4)))
 
         # output channel: 80(xxs) 96(xs), 160(s)
-        layer5.append(MV2Block(channels[7], channels[8], 2, expansion))   # downsampling
+        layer5.append(MV2Block(channels[7], channels[8], 2, expansion))     # downsampling
         layer5.append(MobileViTBlock(dims[2], L[2], channels[9], kernel_size, patch_size, int(dims[2]*4)))
 
         self.layer1 = nn.Sequential(*layer1)

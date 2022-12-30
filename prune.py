@@ -26,7 +26,7 @@ def add_arguments(parser):
     parser.add_argument('--head_num', type=int, help='number of the head')
 
     parser.add_argument('--test-batch-size', default=128, type=int, help='batch size at inference (default: 128)')
-    parser.add_argument('--cprune-rate', default=0.5, type=float, help='pruning rate (in channel, default: 0.5)')
+    parser.add_argument('--fprune-rate', default=0.5, type=float, help='pruning rate (filter, default: 0.5)')
 
     parser.add_argument('--dense-model', default='', type=str, metavar='PATH', help='path to the model (default: None)')
 
@@ -56,7 +56,7 @@ def main(args):
         if isinstance(m, nn.BatchNorm2d):
             total += m.weight.data.shape[0]
 
-    # get the |weight of BatchNorm layers|
+    # get the |weight (gamma) of BatchNorm layers|
     bn = torch.zeros(total)
     index = 0
     for m in model.modules():
@@ -65,22 +65,21 @@ def main(args):
             bn[index:(index+size)] = m.weight.data.abs().clone()
             index += size
 
-    # sort weight of BatchNorm layers and get threshold point
+    # sort weight (gamma) of BatchNorm layers and get threshold point
     y, i = torch.sort(bn)
-    threshold_index = int(total * args.cprune_rate)
+    threshold_index = int(total * args.fprune_rate)
     threshold = y[threshold_index]
-
 
     # make mask
     pruned = 0
-    cfg = []
-    cfg_mask = []
+    cfg = []        # saved parameters of each layers
+    cfg_mask = []   # mask of each layers
     for k, m in enumerate(model.modules()):
-        if isinstance(m, nn.BatchNorm2d):
-            weight_copy = m.weight.data.abs().clone()
-            mask = weight_copy.gt(threshold).float().cuda()
-            pruned += mask.shape[0] - torch.sum(mask)
-            m.weight.data.mul_(mask)
+        if isinstance(m, nn.BatchNorm2d):                       # every BatchNorm2d layer,
+            weight_copy = m.weight.data.abs().clone()           # get absolute values of BatchNorm weight (gamma)
+            mask = weight_copy.gt(threshold).float().cuda()     # (1.0 if weight > threshold else 0.0) for all elements in weight matrix
+            pruned += mask.shape[0] - torch.sum(mask)           # save number of pruned weights
+            m.weight.data.mul_(mask)                            # 
             m.bias.data.mul_(mask)
             cfg.append(int(torch.sum(mask)))
             cfg_mask.append(mask.clone())
@@ -102,7 +101,7 @@ def main(args):
     model.to(args.device)
 
     num_parameters = sum([param.nelement() for param in new_model.parameters()])
-    save_path = os.path.join(args.save, "prune.txt")
+    save_path = "./prune.txt"
     with open(save_path, "w") as fp:
         fp.write("Configuration: \n"+str(cfg)+"\n")
         fp.write("Number of parameters: \n"+str(num_parameters)+"\n")
@@ -183,7 +182,8 @@ def main(args):
                 idx0 = np.resize(idx0, (1,))
 
             m1.weight.data = m0.weight.data[:, idx0].clone()
-            m1.bias.data = m0.bias.data.clone()
+            if m0.bias is not None:
+                m1.bias.data = m0.bias.data.clone()
 
     torch.save({'cfg': cfg, 'state_dict': new_model.state_dict()}, os.path.join(args.save, 'pruned.pth.tar'))
 
