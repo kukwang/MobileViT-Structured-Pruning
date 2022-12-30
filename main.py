@@ -11,8 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset
 
-from models import build_MobileVIT
-from models import get_model_config
+from models import build_MobileVIT, get_model_config
 from utils import *
 
 def add_arguments(parser):
@@ -41,93 +40,15 @@ def add_arguments(parser):
     parser.add_argument('--train-batch-size', default=128, type=int, help='batch size at training (default: 128)')
     parser.add_argument('--test-batch-size', default=1, type=int, help='batch size at inference (default: 1)')
 
-    parser.add_argument('--pruned-model', default='', help='path of pruned model (default: None)')
+    parser.add_argument('--resume', default='', help='path of the model in training (default: None)')
+    parser.add_argument('--pruned-model', default='', help='path of the pruned model (default: None)')
 
     return parser
-
-def train(args, model, train_loader, val_loader, criterion, optimizer, save_path):
-    best_val_acc = 0
-    total_train_time = 0
-    for epoch in range(args.epoch):
-        # train
-        train_total, train_correct = 0, 0
-        train_loss = 0.0
-        model.train()
-        train_st = time.time()
-        for _, data in enumerate(train_loader, 0):
-            inputs, labels = data
-            inputs, labels = inputs.to(args.device), labels.to(args.device)
-
-            optimizer.zero_grad()
-
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-
-            _, pred = torch.max(outputs.data, 1)
-            train_total += labels.size(0)
-            train_correct += (pred == labels).sum().item()
-            train_loss += loss.item()
-
-            loss.backward()
-            optimizer.step()
-
-        train_time = time.time() - train_st
-        total_train_time += train_time
-        train_acc = train_correct / train_total * 100
-        train_loss = train_loss / len(train_loader) 
-        
-        # validation
-        val_total, val_correct = 0, 0
-        val_loss = 0.0
-        model.eval()
-        val_st = time.time()
-        for _, data in enumerate(val_loader, 0):
-            inputs, labels = data
-            inputs, labels = inputs.to(args.device), labels.to(args.device)
-
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-
-            _, predicted = torch.max(outputs.data, 1)
-            val_total += labels.size(0)
-            val_correct += (predicted == labels).sum().item()
-            val_loss += loss.item()
-
-        val_time = time.time() - val_st
-        val_acc = val_correct / val_total * 100
-        val_loss = val_loss / len(val_loader)
-        print(f'epoch: {epoch + 1}    train_acc: {train_acc:.2f}    train_loss: {train_loss:.2f}    train_time: {train_time:.2f}    \
-            val_acc: {val_acc:.2f}    val_loss: {val_loss:.2f}    val_time: {val_time:.2f}')
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            torch.save(model.state_dict(), save_path)
-
-    return best_val_acc, total_train_time // args.epoch
-
-def test(args, model, testloader, save_path):
-    test_correct, test_total = 0, 0
-    with torch.no_grad():
-        model.load_state_dict(torch.load(save_path))
-        model.eval()
-        test_st = time.time() 
-        for _, data in enumerate(testloader):
-            images, labels = data
-            images, labels = images.to(args.device), labels.to(args.device)
-
-            outputs = model(images)
-
-            _, pred = torch.max(outputs.data, 1)
-            test_total += labels.size(0)
-            test_correct += (pred == labels).sum().item()
-
-    test_acc = 100 * test_correct / test_total
-    test_time = time.time() - test_st 
-    return test_acc, test_time
 
 def main(args):
     
     # hold random seeds
-    print(f"Using seed: {args.seed}")
+    print(f"random seed: {args.seed}")
     torch.manual_seed(args.seed + args.local_rank)
     torch.cuda.manual_seed(args.seed + args.local_rank)
     torch.cuda.manual_seed_all(args.seed + args.local_rank)
@@ -137,7 +58,7 @@ def main(args):
     torch.backends.cudnn.benchmark = False
     
     # model save path
-    save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_dense.pth'
+    save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_dense.pth'
 
     # get datasets
     # if train_ratio == 0.0, val_set is None
@@ -160,11 +81,23 @@ def main(args):
     if not args.test:
         print('Train start')
         best_train_acc, avg_train_time = train(args, model, train_loader, val_loader, criterion, optimizer, save_path)
-        print(f'Best val acc: {best_train_acc:.2f} %    Average training time: {avg_train_time/args.epoch:.2f} s')
+        print(f'Best val acc: {best_train_acc:.2f}%    Average training time: {avg_train_time:.2f}s')
 
+    print(f'model size: {get_file_size(save_path)}')
+    
     print('Test start')
-    test_acc, test_time = test(args, model, test_loader, save_path)
-    print(f'Test acc: {test_acc:.2f} %    Test time: {test_time} s')
+    if os.path.isfile(save_path):
+        print(f"=> loading checkpoint '{save_path}'")
+        dense_model = torch.load(save_path)
+        top1_acc = dense_model['top1_acc']
+        model.load_state_dict(dense_model['state_dict'])
+        print(f"=> loaded checkpoint '{save_path}' (epoch {dense_model['epoch']}) Acc: {top1_acc:f}")
+    else:
+        print(f"=> no checkpoint found at '{save_path}'")
+
+
+    test_acc, test_time = test(args, model, test_loader)
+    print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MobileViT pruning')

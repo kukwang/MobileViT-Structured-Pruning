@@ -1,3 +1,6 @@
+# Network slimming
+# https://openaccess.thecvf.com/content_ICCV_2017/papers/Liu_Learning_Efficient_Convolutional_ICCV_2017_paper.pdf
+
 import os
 import argparse
 import numpy as np
@@ -7,12 +10,15 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 from models import *
 
-from models import build_MobileVIT
-from models import get_model_config
+from models import build_MobileVIT, get_model_config
 from utils import *
 
 def add_arguments(parser):
+    parser.add_argument('--device', default='cuda', help='device (default: cuda)')
+
     parser.add_argument('--dataset-name', default='cifar10', type=str, help='training dataset (default: cifar10)')
+    parser.add_argument('--classes', default=10, type=int, help='number of the class (default: 10)')
+    parser.add_argument('--resize', default=64, type=int, help='resize size (default: 64)')
 
     parser.add_argument('--model-config', help='model config file path')
     parser.add_argument('--mode', default='s', type=str, help='select mode of the model (default: s)')
@@ -20,42 +26,37 @@ def add_arguments(parser):
     parser.add_argument('--head_num', type=int, help='number of the head')
 
     parser.add_argument('--test-batch-size', default=128, type=int, help='batch size at inference (default: 128)')
-    parser.add_argument('--percent', default=0.5, type=float, help='scale sparse rate (default: 0.5)')
+    parser.add_argument('--cprune-rate', default=0.5, type=float, help='pruning rate (in channel, default: 0.5)')
 
-    parser.add_argument('--model-path', default='', type=str, metavar='PATH', help='path to the model (default: None)')
-    parser.add_argument('--save', default='', type=str, metavar='PATH', help='path to save pruned model (default: None)')
+    parser.add_argument('--dense-model', default='', type=str, metavar='PATH', help='path to the model (default: None)')
 
     return parser
 
 def main(args):
-    if not os.path.exists(args.save):
-        os.makedirs(args.save)
-
     # build model
     model_config = get_model_config(args)
 
     model = build_MobileVIT(args, model_config).to(args.device)
+    model.to(args.device)
 
-    if args.cuda:
-        model.cuda()
-    if args.model:
-        if os.path.isfile(args.model):
-            print("=> loading checkpoint '{}'".format(args.model))
-            checkpoint = torch.load(args.model)
-            args.start_epoch = checkpoint['epoch']
-            best_prec1 = checkpoint['best_prec1']
-            model.load_state_dict(checkpoint['state_dict'])
-            print("=> loaded checkpoint '{}' (epoch {}) Prec1: {:f}"
-                .format(args.model, checkpoint['epoch'], best_prec1))
+    # load trained dense model
+    if args.dense_model:
+        if os.path.isfile(args.dense_model):
+            print(f"=> loading checkpoint '{args.dense_model}'")
+            dense_model = torch.load(args.dense_model)
+            acc = dense_model['top1_acc']
+            model.load_state_dict(dense_model['state_dict'])
+            print(f"=> loaded checkpoint '{args.dense_model}' (epoch {dense_model['epoch']}) Top1_acc: {acc:f}")
         else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
+            print(f"=> no checkpoint found at '{args.dense_model}'")
 
+    # get the total shape of all BatchNorm layers
     total = 0
-
     for m in model.modules():
         if isinstance(m, nn.BatchNorm2d):
             total += m.weight.data.shape[0]
 
+    # get the |weight of BatchNorm layers|
     bn = torch.zeros(total)
     index = 0
     for m in model.modules():
@@ -64,19 +65,21 @@ def main(args):
             bn[index:(index+size)] = m.weight.data.abs().clone()
             index += size
 
+    # sort weight of BatchNorm layers and get threshold point
     y, i = torch.sort(bn)
-    thre_index = int(total * args.percent)
-    thre = y[thre_index]
+    threshold_index = int(total * args.cprune_rate)
+    threshold = y[threshold_index]
 
 
+    # make mask
     pruned = 0
     cfg = []
     cfg_mask = []
     for k, m in enumerate(model.modules()):
         if isinstance(m, nn.BatchNorm2d):
             weight_copy = m.weight.data.abs().clone()
-            mask = weight_copy.gt(thre).float().cuda()
-            pruned = pruned + mask.shape[0] - torch.sum(mask)
+            mask = weight_copy.gt(threshold).float().cuda()
+            pruned += mask.shape[0] - torch.sum(mask)
             m.weight.data.mul_(mask)
             m.bias.data.mul_(mask)
             cfg.append(int(torch.sum(mask)))
@@ -90,58 +93,26 @@ def main(args):
 
     print('Pre-processing Successful!')
 
-    # simple test model after Pre-processing prune (simple set BN scales to zeros)
-    def test(model):
-        kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-        if args.dataset == 'cifar10':
-            test_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR10('./data.cifar10', train=False, transform=transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])),
-                batch_size=args.test_batch_size, shuffle=False, **kwargs)
-        elif args.dataset == 'cifar100':
-            test_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR100('./data.cifar100', train=False, transform=transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])),
-                batch_size=args.test_batch_size, shuffle=False, **kwargs)
-        else:
-            raise ValueError("No valid dataset is given.")
-        model.eval()
-        correct = 0
-        for data, target in test_loader:
-            if args.cuda:
-                data, target = data.cuda(), target.cuda()
-            data, target = Variable(data, volatile=True), Variable(target)
-            output = model(data)
-            pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability
-            correct += pred.eq(target.data.view_as(pred)).cpu().sum()
-
-        print('\nTest set: Accuracy: {}/{} ({:.1f}%)\n'.format(
-            correct, len(test_loader.dataset), 100. * correct / len(test_loader.dataset)))
-        return correct / float(len(test_loader.dataset))
-
-    acc = test(model)
+    print(f'pruned_ratio: {pruned_ratio}')
 
     print("Cfg:")
     print(cfg)
 
-    newmodel = resnet(depth=args.depth, dataset=args.dataset, cfg=cfg)
-    if args.cuda:
-        newmodel.cuda()
+    new_model = build_MobileVIT(args, model_config).to(args.device)
+    model.to(args.device)
 
-    num_parameters = sum([param.nelement() for param in newmodel.parameters()])
-    savepath = os.path.join(args.save, "prune.txt")
-    with open(savepath, "w") as fp:
+    num_parameters = sum([param.nelement() for param in new_model.parameters()])
+    save_path = os.path.join(args.save, "prune.txt")
+    with open(save_path, "w") as fp:
         fp.write("Configuration: \n"+str(cfg)+"\n")
         fp.write("Number of parameters: \n"+str(num_parameters)+"\n")
-        fp.write("Test accuracy: \n"+str(acc))
 
+    # network slimming (prune) part
     old_modules = list(model.modules())
-    new_modules = list(newmodel.modules())
+    new_modules = list(new_model.modules())
     layer_id_in_cfg = 0
-    start_mask = torch.ones(3)
-    end_mask = cfg_mask[layer_id_in_cfg]
+    start_mask = torch.ones(3)              # init: start_mask = tensor([ 1.,  1.,  1.])
+    end_mask = cfg_mask[layer_id_in_cfg]    # init: end_mask = cfg_mask[0]
     conv_count = 0
 
     for layer_id in range(len(old_modules)):
@@ -152,37 +123,38 @@ def main(args):
             if idx1.size == 1:
                 idx1 = np.resize(idx1,(1,))
 
-            if isinstance(old_modules[layer_id + 1], channel_selection):
-                # If the next layer is the channel selection layer, then the current batchnorm 2d layer won't be pruned.
-                m1.weight.data = m0.weight.data.clone()
-                m1.bias.data = m0.bias.data.clone()
-                m1.running_mean = m0.running_mean.clone()
-                m1.running_var = m0.running_var.clone()
+            # if isinstance(old_modules[layer_id + 1], channel_selection):
+            #     # If the next layer is the channel selection layer, then the current batchnorm 2d layer won't be pruned.
+            #     m1.weight.data = m0.weight.data.clone()
+            #     m1.bias.data = m0.bias.data.clone()
+            #     m1.running_mean = m0.running_mean.clone()
+            #     m1.running_var = m0.running_var.clone()
 
-                # We need to set the channel selection layer.
-                m2 = new_modules[layer_id + 1]
-                m2.indexes.data.zero_()
-                m2.indexes.data[idx1.tolist()] = 1.0
+            #     # We need to set the channel selection layer.
+            #     m2 = new_modules[layer_id + 1]
+            #     m2.indexes.data.zero_()
+            #     m2.indexes.data[idx1.tolist()] = 1.0
 
-                layer_id_in_cfg += 1
-                start_mask = end_mask.clone()
-                if layer_id_in_cfg < len(cfg_mask):
-                    end_mask = cfg_mask[layer_id_in_cfg]
-            else:
-                m1.weight.data = m0.weight.data[idx1.tolist()].clone()
-                m1.bias.data = m0.bias.data[idx1.tolist()].clone()
-                m1.running_mean = m0.running_mean[idx1.tolist()].clone()
-                m1.running_var = m0.running_var[idx1.tolist()].clone()
-                layer_id_in_cfg += 1
-                start_mask = end_mask.clone()
-                if layer_id_in_cfg < len(cfg_mask):  # do not change in Final FC
-                    end_mask = cfg_mask[layer_id_in_cfg]
+            #     layer_id_in_cfg += 1
+            #     start_mask = end_mask.clone()
+            #     if layer_id_in_cfg < len(cfg_mask):
+            #         end_mask = cfg_mask[layer_id_in_cfg]
+            # else:
+            m1.weight.data = m0.weight.data[idx1.tolist()].clone()
+            m1.bias.data = m0.bias.data[idx1.tolist()].clone()
+            m1.running_mean = m0.running_mean[idx1.tolist()].clone()
+            m1.running_var = m0.running_var[idx1.tolist()].clone()
+            layer_id_in_cfg += 1
+            start_mask = end_mask.clone()
+            if layer_id_in_cfg < len(cfg_mask):  # do not change in Final FC
+                end_mask = cfg_mask[layer_id_in_cfg]
         elif isinstance(m0, nn.Conv2d):
             if conv_count == 0:
                 m1.weight.data = m0.weight.data.clone()
                 conv_count += 1
                 continue
-            if isinstance(old_modules[layer_id-1], channel_selection) or isinstance(old_modules[layer_id-1], nn.BatchNorm2d):
+            # if isinstance(old_modules[layer_id-1], channel_selection) or isinstance(old_modules[layer_id-1], nn.BatchNorm2d):
+            if isinstance(old_modules[layer_id-1], nn.BatchNorm2d):
                 # This convers the convolutions in the residual block.
                 # The convolutions are either after the channel selection layer or after the batch normalization layer.
                 conv_count += 1
@@ -213,7 +185,7 @@ def main(args):
             m1.weight.data = m0.weight.data[:, idx0].clone()
             m1.bias.data = m0.bias.data.clone()
 
-    torch.save({'cfg': cfg, 'state_dict': newmodel.state_dict()}, os.path.join(args.save, 'pruned.pth.tar'))
+    torch.save({'cfg': cfg, 'state_dict': new_model.state_dict()}, os.path.join(args.save, 'pruned.pth.tar'))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MobileViT pruning')

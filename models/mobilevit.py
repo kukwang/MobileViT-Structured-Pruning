@@ -76,12 +76,14 @@ class Attention(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout=0.):
         super().__init__()
-        self.layers = nn.ModuleList([])
+        layers = []
         for _ in range(depth):
-            self.layers.append(nn.ModuleList([
+            # layers.append(nn.ModuleList([
+            layers.append(nn.Sequential(*[
                 PreNorm(dim, Attention(dim, heads, dim_head, dropout)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout))
             ]))
+        self.layers = nn.Sequential(*layers)
     
     def forward(self, x):
         for attn, ff in self.layers:
@@ -173,25 +175,38 @@ class MobileViT(nn.Module):
 
         L = [2, 4, 3]   # repeated transformer block number
     
-        self.conv1 = conv_nxn_bn(3, channels[0], stride=2)
+        self.conv1 = conv_nxn_bn(3, channels[0], stride=2)                  # downsampling
 
-        self.mv2 = nn.ModuleList([])
-        self.mv2.append(MV2Block(channels[0], channels[1], 1, expansion))
-        self.mv2.append(MV2Block(channels[1], channels[2], 2, expansion))
-
-        self.mv2.append(MV2Block(channels[2], channels[3], 1, expansion))
-        self.mv2.append(MV2Block(channels[2], channels[3], 1, expansion))
-
-        self.mv2.append(MV2Block(channels[3], channels[4], 2, expansion))
-        self.mv2.append(MV2Block(channels[5], channels[6], 2, expansion))
-        self.mv2.append(MV2Block(channels[7], channels[8], 2, expansion))
+        layer1, layer2, layer3, layer4, layer5 = [], [], [], [], []
         
-        self.mvit = nn.ModuleList([])
-        self.mvit.append(MobileViTBlock(dims[0], L[0], channels[5], kernel_size, patch_size, int(dims[0]*2)))
-        self.mvit.append(MobileViTBlock(dims[1], L[1], channels[7], kernel_size, patch_size, int(dims[1]*4)))
-        self.mvit.append(MobileViTBlock(dims[2], L[2], channels[9], kernel_size, patch_size, int(dims[2]*4)))
+        # output channel: 16(xxs) 32(xs, s)
+        layer1.append(MV2Block(channels[0], channels[1], 1, expansion))
 
-        self.conv2 = conv_1x1_bn(channels[-2], channels[-1])
+        # output channel: 24(xxs) 48(xs), 64(s)
+        layer2.append(MV2Block(channels[1], channels[2], 2, expansion))   # downsampling
+        layer2.append(MV2Block(channels[2], channels[3], 1, expansion))
+        layer2.append(MV2Block(channels[2], channels[3], 1, expansion))
+
+        # output channel: 48(xxs) 64(xs), 96(s)
+        layer3.append(MV2Block(channels[3], channels[4], 2, expansion))   # downsampling
+        layer3.append(MobileViTBlock(dims[0], L[0], channels[5], kernel_size, patch_size, int(dims[0]*2)))
+
+        # output channel: 64(xxs) 80(xs), 128(s)
+        layer4.append(MV2Block(channels[5], channels[6], 2, expansion))   # downsampling
+        layer4.append(MobileViTBlock(dims[1], L[1], channels[7], kernel_size, patch_size, int(dims[1]*4)))
+
+        # output channel: 80(xxs) 96(xs), 160(s)
+        layer5.append(MV2Block(channels[7], channels[8], 2, expansion))   # downsampling
+        layer5.append(MobileViTBlock(dims[2], L[2], channels[9], kernel_size, patch_size, int(dims[2]*4)))
+
+        self.layer1 = nn.Sequential(*layer1)
+        self.layer2 = nn.Sequential(*layer2)
+        self.layer3 = nn.Sequential(*layer3)
+        self.layer4 = nn.Sequential(*layer4)
+        self.layer5 = nn.Sequential(*layer5)
+
+        # output channel: 320(xxs) 384(xs), 640(s)
+        self.conv1x1 = conv_1x1_bn(channels[-2], channels[-1])
 
         self.pool = nn.AvgPool2d(ih//32, 1)
         self.fc = nn.Linear(channels[-1], num_classes, bias=False)
@@ -199,21 +214,13 @@ class MobileViT(nn.Module):
     def forward(self, x):
         x = self.conv1(x)   # down-sampling
 
-        x = self.mv2[0](x)
-        x = self.mv2[1](x)  # down-sampling
-        x = self.mv2[2](x)
-        x = self.mv2[3](x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
 
-        x = self.mv2[4](x)  # down-sampling
-        x = self.mvit[0](x)
-
-        x = self.mv2[5](x)  # down-sampling
-        x = self.mvit[1](x)
-
-        x = self.mv2[6](x)  # down-sampling
-        x = self.mvit[2](x)
-
-        x = self.conv2(x)
+        x = self.conv1x1(x)
 
         x = self.pool(x).view(-1, x.shape[1])
         x = self.fc(x)

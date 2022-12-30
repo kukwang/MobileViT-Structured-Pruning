@@ -2,4 +2,5 @@
 *.txt
 *.pth
 save
-run1.sh
+r1.sh
+test.py
