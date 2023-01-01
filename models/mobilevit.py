@@ -78,7 +78,6 @@ class Transformer(nn.Module):
         super().__init__()
         layers = []
         for _ in range(depth):
-            # layers.append(nn.ModuleList([
             layers.append(nn.Sequential(*[
                 PreNorm(dim, Attention(dim, heads, dim_head, dropout)),
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout))

@@ -41,7 +41,7 @@ mv log_${mode}_${resize}_${ep}ep_dense.txt ./logs
 
 # mv log_${mode}_${resize}_${ep}ep_dense.txt ./logs
 
-# CUDA_VISIBLE_DEVICES=0 python3 prune.py --classes ${classes} --dataset-name ${dataset_name} \
+# CUDA_VISIBLE_DEVICES=0 python3 filter_prune.py --classes ${classes} --dataset-name ${dataset_name} \
 # --model-config ${config} --mode ${mode} --resize ${resize} --fprune-rate ${pr} --dense-model ${dense_path} \
 # | tee log_${resize}_${ep}ep_prune.txt
 
