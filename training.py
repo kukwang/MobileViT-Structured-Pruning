@@ -41,7 +41,6 @@ def add_arguments(parser):
     parser.add_argument('--test-batch-size', default=1, type=int, help='batch size at inference (default: 1)')
 
     parser.add_argument('--resume', default='', help='path of the model in training (default: None)')
-    parser.add_argument('--pruned-model', default='', help='path of the pruned model (default: None)')
 
     return parser
 
@@ -100,7 +99,7 @@ def main(args):
     print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='MobileViT pruning')
+    parser = argparse.ArgumentParser(description='MobileViT Training')
     parser = add_arguments(parser)
     args = parser.parse_args()
 

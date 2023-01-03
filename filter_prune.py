@@ -13,9 +13,6 @@ from models import *
 from models import build_MobileVIT, get_model_config, MobileViT
 from utils import *
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
 def add_arguments(parser):
     parser.add_argument('--device', default='cuda', help='device (default: cuda)')
 
@@ -31,20 +28,22 @@ def add_arguments(parser):
     parser.add_argument('--test-batch-size', default=128, type=int, help='batch size at inference (default: 128)')
     parser.add_argument('--fprune-rate', default=0.5, type=float, help='pruning rate (filter, default: 0.5)')
 
-    parser.add_argument('--dense-model', default='', type=str, metavar='PATH', help='path to the model (default: None)')
+    parser.add_argument('--dense-model', default='', type=str, metavar='PATH', help='path of the dense model (default: None)')
+    parser.add_argument('--save-path', default='', type=str, metavar='PATH', help='path of the pruned model (default: None)')
     return parser
 
 class Masking(object):
-    def __init__(self, args, model: MobileViT):
+    def __init__(self, args, model: MobileViT, model_config):
         self.args = args                    # arguments
         self.modules = model.modules()      # modules in model
+        self.model_config = model_config    # model config (expansion, dims, channels)
 
         self.masks = {}                     # masks of each layers
         # self.baseline_nonzero = 0           # count number of zeros in the original model
         self.name2zerofilters = {}          # number of pruned filters in specific layer
-        # self.name2nonzerofilters = {}       # number of not pruned filters in specific layer
+        self.name2nonzerofilters = {}       # number of not pruned filters in specific layer
         self.name2zerofilters_idx = {}      # idxes of pruned filter in specific layer
-        # self.name2nonzerofilters_idx = {}   # idxes of not pruned filter in specific layer
+        self.name2nonzerofilters_idx = {}   # idxes of not pruned filter in specific layer
         
         print(f'init masks')
         self.mask_init(model)
@@ -52,42 +51,77 @@ class Masking(object):
         #     print(f'layer name: {k},    shape:{self.masks[k].shape}')
         
     def prune_filter(self, model: MobileViT):
-        del_filter_idx_prev = torch.tensor([])  # pruned filters in previous conv layer
+        del_filter_idx_prev = torch.tensor([])      # pruned filters in previous conv layer
+        del_filter_idx_prev_1x1 = torch.tensor([])  # pruned filters in prev 1x1 conv layer (for pruning concatenated weights in the MobileViTBlock)
         print(f'make masks for pruning')
         # for module in model.modules():
         for name, weight in model.named_parameters():
             if name not in self.masks: continue
+            # conv2d layers
             if 'conv' in name:
-                filter_abs_sum = torch.sum(weight.data.abs(), (1,2,3))
-                num_filter_to_del = int(len(filter_abs_sum) * self.args.fprune_rate)
-                _, del_filter_idx = torch.sort(filter_abs_sum)
-                del_filter_idx = del_filter_idx[:num_filter_to_del]
+                # dwise conv, prune same filter to the prev filters
+                if self.masks[name].shape[1] == 1:
+                    self.masks[name][del_filter_idx_prev.tolist()] = 0
+                # normal conv
+                else:
+                    filter_abs_sum = torch.sum(weight.data.abs(), (1,2,3))
+                    num_filter_to_del = int(len(filter_abs_sum) * self.args.fprune_rate)
+                    _, del_filter_idx = torch.sort(filter_abs_sum)
+                    del_filter_idx = del_filter_idx[:num_filter_to_del]
+                
+                    # prune columns (output channels)
+                    self.masks[name] = torch.ones_like(self.masks[name])
+                    self.masks[name][del_filter_idx.tolist()] = 0
+                    # print(f'masks:{self.masks[name]}')
+
+                    # save for remove filters
+                    self.name2zerofilters[name] = num_filter_to_del
+                    self.name2nonzerofilters[name] = int(len(filter_abs_sum) - num_filter_to_del)
+                    self.name2zerofilters_idx[name] = set(del_filter_idx.tolist())
+                    self.name2nonzerofilters_idx[name] = set(range(len(filter_abs_sum))) - self.name2zerofilters_idx[name]
+                        
+                    # prune rows (input channels)
+                    # ignore residual conenctions (it will be complemented by fine-tuning)
+                    self.masks[name][:, del_filter_idx_prev.tolist()] = 0
+                    # conv layer after concatenate two weight tensors in MobileViTBlock
+                    if 'conv4' in name:
+                        del_filter_idx_prev_1x1 = [x + len(filter_abs_sum) for x in del_filter_idx_prev_1x1]    # shift the idxes
+                        self.masks[name][:, del_filter_idx_prev_1x1] = 0
+                    del_filter_idx_prev = del_filter_idx
+                    if 'conv.6' in name:    # for pruning concatenated weights in the MobileViTBlock
+                        del_filter_idx_prev_1x1 = del_filter_idx
+
+            # linear layer in transformer feedforward
+            elif 'net' in name:
+                column_abs_sum = torch.sum(weight.data.abs(), 1)
+                num_columns_to_del = int(len(column_abs_sum) * self.args.fprune_rate)
+                _, del_column_idx = torch.sort(column_abs_sum)
+                del_column_idx = del_column_idx[:num_columns_to_del]
             
                 # prune columns (output channels)
                 self.masks[name] = torch.ones_like(self.masks[name])
-                self.masks[name][del_filter_idx.tolist()] = 0
+                self.masks[name][del_column_idx.tolist()] = 0
                 # print(f'masks:{self.masks[name]}')
 
                 # save for remove filters
-                self.name2zerofilters[name] = num_filter_to_del
-                # self.name2nonzerofilters[name] = int(len(filter_abs_sum) - num_filter_to_del)
-                self.name2zerofilters_idx[name] = set(del_filter_idx.tolist())
-                # self.name2nonzerofilters_idx[name] = set(range(len(filter_abs_sum))) - self.name2zerofilters_idx[name]
+                self.name2zerofilters[name] = num_columns_to_del
+                self.name2nonzerofilters[name] = int(len(column_abs_sum) - num_columns_to_del)
+                self.name2zerofilters_idx[name] = set(del_column_idx.tolist())
+                self.name2nonzerofilters_idx[name] = set(range(len(column_abs_sum))) - self.name2zerofilters_idx[name]
 
                 # prune rows (input channels)
-                # ignore residual conenctions (it will be complemented by fine-tuning)
-                if self.masks[name].shape[1] == 1:  # dwise conv
-                    self.masks[name][del_filter_idx_prev.tolist()] = 0
-                else:                               # normal conv
-                    self.masks[name][:, del_filter_idx_prev.tolist()] = 0
-                del_filter_idx_prev = del_filter_idx
+                self.masks[name][:, del_filter_idx_prev.tolist()] = 0
+                del_filter_idx_prev = del_column_idx
 
-            if 'net' in name:
-                None
-
-        print('-'*100)
         print(f'apply masks')
-        model = self.apply_mask(model)
+        print('-'*100)
+        zeroing_model = self.apply_mask(model)
+        pruned_model = self.apply_mask_real(model)
+
+
+        inp = torch.randn(128, 3, 256, 256).to(args.device)
+
+        print(pruned_model(inp).size())
 
         total_size = 0
         for name, weight in self.masks.items():
@@ -101,6 +135,7 @@ class Masking(object):
         print('Sparsity after pruning: {0:.2f}%'.format(
             (total_size-sparse_size) / total_size * 100.))
 
+        return pruned_model
 
     # ====================================================
     # pruning utils
@@ -110,7 +145,7 @@ class Masking(object):
             if weight.dim() > 1 and ('conv' in name or 'net' in name):      # conv2d layer, feedforward layer in transformer block
                 self.masks[name] = torch.ones_like(weight, dtype=torch.float32, requires_grad=False).to(self.args.device)
                 # self.baseline_nonzero += (self.masks[name] != 0).sum().int().item()   
-        
+                
     def remove_weight_partial_name(self, partial_name):
         removed = set()
         for name in list(self.masks.keys()):
@@ -128,6 +163,46 @@ class Masking(object):
                 weights.data = weights.data * self.masks[name]
         return model
 
+    def apply_mask_real(self, model: MobileViT):
+        pruned_weights = model.state_dict()
+        batchnorm_weight = False
+        prev_name, prev_1x1_name = None, None
+        for k in pruned_weights.keys():
+            if 'tracked' in k:  continue
+            weights = pruned_weights[k]
+            if batchnorm_weight:                    # batchnorm (weight, bias)
+                weights = weights[list(self.name2nonzerofilters_idx[prev_name])]
+                batchnorm_weight = False
+            # bias in linear layer in feedforward, batchnorm, layernorm, linear in attention 
+            elif ('bias' in k) or ('running' in k) or ('norm' in k) or ('to_out' in k):
+                weights = weights[list(self.name2nonzerofilters_idx[prev_name])]
+            # input to (query,key,value) in attention, fc layer 
+            elif ('to_qkv' in k) or ('fc' in k):
+                weights = weights[:,list(self.name2nonzerofilters_idx[prev_name])]
+            elif ('conv' in k) or ('net' in k):     # conv2d layers, linear layer in transformer feedforward
+                if self.masks[k].shape[1] == 1:     # dwise conv layer
+                    weights = weights[list(self.name2nonzerofilters_idx[prev_name])]
+                else:                               # normal conv
+                    weights = weights[list(self.name2nonzerofilters_idx[k])]             # prune output channels
+                    if prev_name is not None:
+                        if 'conv4' in k:            # 
+                            filter_idx = [x + len(weights)//2 for x in self.name2nonzerofilters_idx[prev_1x1_name]]    # shift the idxes
+                            filter_idx = list(self.name2nonzerofilters_idx[k]) + filter_idx
+                            weights = weights[:,filter_idx]
+                        else:                       # normal weights
+                            weights = weights[:,list(self.name2nonzerofilters_idx[prev_name])]  # prune input channels
+                    if 'conv.6' in k:             # for pruning concatenated weights in the MobileViTBlock
+                        prev_1x1_name = k
+
+                    prev_name = k
+                if 'conv' in k:  # to identify batchnorm
+                    batchnorm_weight = True
+            pruned_weights[k] = weights     # update weights
+
+        pruned_model = build_MobileVIT(self.args, self.model_config, pr=True).to(args.device)
+        
+        pruned_model.load_state_dict(pruned_weights)    # 여기 모양 안맞다고 에러뜸
+        return pruned_model
 
 # ==================================================== main ====================================================
 
@@ -138,7 +213,7 @@ def main(args):
     model = build_MobileVIT(args, model_config).to(args.device)
     model.to(args.device)
 
-    # load trained dense model
+    # load dense model
     if args.dense_model:
         if os.path.isfile(args.dense_model):
             print(f"=> loading checkpoint '{args.dense_model}'")
@@ -149,133 +224,16 @@ def main(args):
         else:
             print(f"=> no checkpoint found at '{args.dense_model}'")
 
-    mask_class = Masking(args, model)
-    mask_class.prune_filter(model)
+    mask_class = Masking(args, model, model_config)
+    pruned_model = mask_class.prune_filter(model)
+    masks = mask_class.masks
 
-    # # 여기부터 수정
-    # #{{{
-    # # get the total shape of all BatchNorm layers
-    # total = 0
-    # for m in model.modules():
-    #     if isinstance(m, nn.BatchNorm2d):
-    #         total += m.weight.data.shape[0]
-
-    # # get the |weight (gamma) of BatchNorm layers|
-    # bn = torch.zeros(total)
-    # index = 0
-    # for m in model.modules():
-    #     if isinstance(m, nn.BatchNorm2d):
-    #         size = m.weight.data.shape[0]
-    #         bn[index:(index+size)] = m.weight.data.abs().clone()
-    #         index += size
-
-    # # sort weight (gamma) of BatchNorm layers and get threshold point
-    # y, i = torch.sort(bn)
-    # threshold_index = int(total * args.fprune_rate)
-    # threshold = y[threshold_index]
-
-    # # make mask
-    # pruned = 0
-    # cfg = []        # saved parameters of each layers
-    # cfg_mask = []   # mask of each layers
-    # for k, m in enumerate(model.modules()):
-    #     if isinstance(m, nn.BatchNorm2d):                       # every BatchNorm2d layer,
-    #         weight_copy = m.weight.data.abs().clone()           # get absolute values of BatchNorm weight (gamma)
-    #         mask = weight_copy.gt(threshold).float().cuda()     # (1.0 if weight > threshold else 0.0) for all elements in weight matrix
-    #         pruned += mask.shape[0] - torch.sum(mask)           # save number of pruned weights
-    #         m.weight.data.mul_(mask)                            # 
-    #         m.bias.data.mul_(mask)
-    #         cfg.append(int(torch.sum(mask)))
-    #         cfg_mask.append(mask.clone())
-    #         print('layer index: {:d} \t total channel: {:d} \t remaining channel: {:d}'.
-    #             format(k, mask.shape[0], int(torch.sum(mask))))
-    #     elif isinstance(m, nn.MaxPool2d):
-    #         cfg.append('M')
-
-    # pruned_ratio = pruned/total
-
-    # print('Pre-processing Successful!')
-
-    # print(f'pruned_ratio: {pruned_ratio}')
-
-    # print("Cfg:")
-    # print(cfg)
-
-    # new_model = build_MobileVIT(args, model_config).to(args.device)
-    # model.to(args.device)
-
-    # num_parameters = sum([param.nelement() for param in new_model.parameters()])
-    # save_path = "./prune.txt"
-    # with open(save_path, "w") as fp:
-    #     fp.write("Configuration: \n"+str(cfg)+"\n")
-    #     fp.write("Number of parameters: \n"+str(num_parameters)+"\n")
-
-    # # network slimming (prune) part
-    # old_modules = list(model.modules())
-    # new_modules = list(new_model.modules())
-    # layer_id_in_cfg = 0
-    # start_mask = torch.ones(3)              # init: start_mask = tensor([ 1.,  1.,  1.])
-    # end_mask = cfg_mask[layer_id_in_cfg]    # init: end_mask = cfg_mask[0]
-    # conv_count = 0
-
-    # for layer_id in range(len(old_modules)):
-    #     m0 = old_modules[layer_id]
-    #     m1 = new_modules[layer_id]
-    #     if isinstance(m0, nn.BatchNorm2d):
-    #         idx1 = np.squeeze(np.argwhere(np.asarray(end_mask.cpu().numpy())))
-    #         if idx1.size == 1:
-    #             idx1 = np.resize(idx1,(1,))
-
-    #         m1.weight.data = m0.weight.data[idx1.tolist()].clone()
-    #         m1.bias.data = m0.bias.data[idx1.tolist()].clone()
-    #         m1.running_mean = m0.running_mean[idx1.tolist()].clone()
-    #         m1.running_var = m0.running_var[idx1.tolist()].clone()
-    #         layer_id_in_cfg += 1
-    #         start_mask = end_mask.clone()
-    #         if layer_id_in_cfg < len(cfg_mask):  # do not change in Final FC
-    #             end_mask = cfg_mask[layer_id_in_cfg]
-    #     elif isinstance(m0, nn.Conv2d):
-    #         if conv_count == 0:
-    #             m1.weight.data = m0.weight.data.clone()
-    #             conv_count += 1
-    #             continue
-    #         # if isinstance(old_modules[layer_id-1], channel_selection) or isinstance(old_modules[layer_id-1], nn.BatchNorm2d):
-    #         if isinstance(old_modules[layer_id-1], nn.BatchNorm2d):
-    #             # This convers the convolutions in the residual block.
-    #             # The convolutions are either after the channel selection layer or after the batch normalization layer.
-    #             conv_count += 1
-    #             idx0 = np.squeeze(np.argwhere(np.asarray(start_mask.cpu().numpy())))
-    #             idx1 = np.squeeze(np.argwhere(np.asarray(end_mask.cpu().numpy())))
-    #             print('In shape: {:d}, Out shape {:d}.'.format(idx0.size, idx1.size))
-    #             if idx0.size == 1:
-    #                 idx0 = np.resize(idx0, (1,))
-    #             if idx1.size == 1:
-    #                 idx1 = np.resize(idx1, (1,))
-    #             w1 = m0.weight.data[:, idx0.tolist(), :, :].clone()
-
-    #             # If the current convolution is not the last convolution in the residual block, then we can change the 
-    #             # number of output channels. Currently we use `conv_count` to detect whether it is such convolution.
-    #             if conv_count % 3 != 1:
-    #                 w1 = w1[idx1.tolist(), :, :, :].clone()
-    #             m1.weight.data = w1.clone()
-    #             continue
-
-    #         # We need to consider the case where there are downsampling convolutions. 
-    #         # For these convolutions, we just copy the weights.
-    #         m1.weight.data = m0.weight.data.clone()
-    #     elif isinstance(m0, nn.Linear):
-    #         idx0 = np.squeeze(np.argwhere(np.asarray(start_mask.cpu().numpy())))
-    #         if idx0.size == 1:
-    #             idx0 = np.resize(idx0, (1,))
-
-    #         m1.weight.data = m0.weight.data[:, idx0].clone()
-    #         if m0.bias is not None:
-    #             m1.bias.data = m0.bias.data.clone()
-
-    # torch.save({'cfg': cfg, 'state_dict': new_model.state_dict()}, os.path.join(args.save, 'pruned.pth.tar'))
+    torch.save({'masks': masks,
+                'state_dict': pruned_model.state_dict()},
+                args.save_path)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='MobileViT pruning')
+    parser = argparse.ArgumentParser(description='MobileViT Pruning')
     parser = add_arguments(parser)
     args = parser.parse_args()
 
