@@ -14,6 +14,9 @@ import torchvision.transforms as transforms
 
 mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 
+def remain_num_after_pr(x, pr):
+    return x - int(x*pr)
+
 def convert_size(size_bytes):
     import math
     if size_bytes == 0:
@@ -115,23 +118,49 @@ def make_dataloader(args, train_set, test_set, val_set=None):
     
     return train_loader, None, test_loader
 
-def train(args, model, train_loader, val_loader, criterion, optimizer, save_path):
+def train(args, model, train_loader, val_loader, criterion, optimizer, save_path, teacher_model=None, kd_criterion=None):
     best_val_acc = 0
     total_train_time = 0
+    
+    # if args.kd_lambda > 0.0:
+    #     print('Get soft labels')
+    #     soft_label = []
+    #     for _, data in enumerate(train_loader, 0):
+    #         inputs, labels = data
+    #         inputs, labels = inputs.to(args.device), labels.to(args.device)
+
+    #         optimizer.zero_grad()
+
+    #         teacher_outputs = teacher_model(inputs)
+    #         soft_label.append(teacher_outputs)
+        
+
     for epoch in range(args.epoch):
         # train
-        train_total, train_correct = 0, 0
+        train_total, train_correct, train_correct_teacher = 0, 0, 0
         train_loss = 0.0
         model.train()
         train_st = time.time()
-        for _, data in enumerate(train_loader, 0):
+        for i, data in enumerate(train_loader, 0):
             inputs, labels = data
             inputs, labels = inputs.to(args.device), labels.to(args.device)
 
             optimizer.zero_grad()
 
+                
             outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            normal_loss = criterion(outputs, labels)
+
+            if args.kd_lambda > 0.0:
+                # teacher_outputs = soft_label[i]
+                teacher_outputs = teacher_model(inputs)
+                kd_loss = kd_criterion(outputs, teacher_outputs) * args.kd_lambda
+                loss = normal_loss + kd_loss
+
+                _, teacher_pred = torch.max(teacher_outputs.data, 1)
+                train_correct_teacher += (teacher_pred == labels).sum().item()
+            else:
+                loss = normal_loss
 
             _, pred = torch.max(outputs.data, 1)
             train_total += labels.size(0)
@@ -147,7 +176,7 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, save_path
         train_loss = train_loss / len(train_loader) 
         
         # validation
-        val_total, val_correct = 0, 0
+        val_total, val_correct, val_correct_teacher = 0, 0 ,0
         val_loss = 0.0
         model.eval()
         val_st = time.time()
@@ -156,7 +185,17 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, save_path
             inputs, labels = inputs.to(args.device), labels.to(args.device)
 
             outputs = model(inputs)
-            loss = criterion(outputs, labels)
+            normal_loss = criterion(outputs, labels)
+
+            if args.kd_lambda > 0.0:
+                teacher_outputs = teacher_model(inputs)
+                kd_loss = kd_criterion(outputs, teacher_outputs) * args.kd_lambda
+                loss = normal_loss + kd_loss
+
+                _, teacher_pred = torch.max(teacher_outputs.data, 1)
+                val_correct_teacher += (teacher_pred == labels).sum().item()
+            else:
+                loss = normal_loss
 
             _, predicted = torch.max(outputs.data, 1)
             val_total += labels.size(0)
@@ -168,6 +207,9 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, save_path
         val_loss = val_loss / len(val_loader)
         print(f'epoch: {epoch + 1}    train_acc: {train_acc:.2f}%   train_loss: {train_loss:.2f}    train_time: {train_time:.2f}s    \
             val_acc: {val_acc:.2f}%    val_loss: {val_loss:.2f}    val_time: {val_time:.2f}s')
+        if args.kd_lambda > 0:
+            print(f'[teacher]    train acc: {train_correct_teacher / train_total * 100}  val acc:{val_correct_teacher / val_total * 100}')
+
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save({'epoch': epoch+1,

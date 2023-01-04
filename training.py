@@ -40,6 +40,9 @@ def add_arguments(parser):
     parser.add_argument('--train-batch-size', default=128, type=int, help='batch size at training (default: 128)')
     parser.add_argument('--test-batch-size', default=1, type=int, help='batch size at inference (default: 1)')
 
+    parser.add_argument('--kd-lambda', default=0.0, type=float, help='lambda in knowledge distillation (default: 0.0)')
+    parser.add_argument('--kd-temp', default=4.0, type=float, help='temperature of softmax in knowledge distillation (default: 4.0)')
+
     parser.add_argument('--resume', default='', help='path of the model in training (default: None)')
 
     return parser
@@ -60,11 +63,9 @@ def main(args):
     save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_dense.pth'
 
     # get datasets
-    # if train_ratio == 0.0, val_set is None
     train_set, val_set, test_set = make_dataset(args)
 
     # build dataloader
-    # if train_ratio == 0.0, val_loader is None
     train_loader, val_loader, test_loader = make_dataloader(args, train_set, val_set, test_set)
     
     # build model

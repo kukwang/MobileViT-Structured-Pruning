@@ -3,9 +3,7 @@ import torch
 import torch.nn as nn
 
 from einops import rearrange
-
-def remain_num_after_pr(x, pr):
-    return x - int(x*pr)
+from utils import *
 
 def conv_1x1_bn(inp, oup):
     return nn.Sequential(
@@ -251,6 +249,7 @@ def build_MobileVIT(args, config, pr=False):
                         num_classes=num_classes,
                         expansion=expansion,
                         pr=args.fprune_rate)
+
     return MobileViT(image_size=img_size,
                      dims=dims,
                      channels=channels,
