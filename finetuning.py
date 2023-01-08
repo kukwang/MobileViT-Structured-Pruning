@@ -50,6 +50,7 @@ def add_arguments(parser):
     parser.add_argument('--pruned-model', default='', help='path of the pruned model (default: None)')
     parser.add_argument('--fprune-rate', default=0.29, type=float, help='pruning rate (filter, default: 0.29 (real pr:0.5))')
 
+    parser.add_argument('--save-path', default=None, help='save path (default: None)')
     return parser
 
 def main(args):
@@ -65,7 +66,10 @@ def main(args):
     torch.backends.cudnn.benchmark = False
     
     # model save path
-    save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_pr{args.fprune_rate}_finetuning.pth'
+    if args.save_path is not None:
+        save_path = args.save_path
+    else:
+        save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_pr{args.fprune_rate}_finetuning.pth'
 
     # get datasets
     train_set, val_set, test_set = make_dataset(args)
@@ -107,32 +111,36 @@ def main(args):
     # set criterion and optimizer
     optimizer = optim.SGD(pruned_model.parameters(), lr=args.lr, momentum=args.momentum)
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
 
     if args.kd_lambda > 0:
         # Get loss function for KD
         kd_criterion = SoftTarget(args.kd_temp)
 
         print('Finetuning with KD start')
-        save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_pr{args.fprune_rate}_finetuning_kd{args.kd_lambda}.pth'
+        if args.save_path is not None:
+            save_path = args.save_path
+        else:
+            save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_pr{args.fprune_rate}_finetuning_kd{args.kd_lambda}.pth'
 
-        best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, save_path,
+        best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, scheduler, save_path,
                                                teacher_model=dense_model, kd_criterion=kd_criterion)
 
     else:
         print('Finetuning without KD start')
-        best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, save_path)
+        best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, scheduler, save_path)
 
     print(f'Best val acc: {best_train_acc:.2f}%    Average training time: {avg_train_time:.2f}s')
 
-    print(f'model size: {get_file_size(save_path)}')
+    get_file_size(save_path)
     
     print('Test start')
     if os.path.isfile(save_path):
         print(f"=> loading checkpoint '{save_path}'")
-        dense_model = torch.load(save_path)
-        top1_acc = dense_model['top1_acc']
-        pruned_model.load_state_dict(dense_model['state_dict'])
-        print(f"=> loaded checkpoint '{save_path}' (epoch {dense_model['epoch']}) Acc: {top1_acc:f}")
+        finetuned_model_configs = torch.load(save_path)
+        top1_acc = finetuned_model_configs['top1_acc']
+        pruned_model.load_state_dict(finetuned_model_configs['state_dict'])
+        print(f"=> loaded checkpoint '{save_path}' (epoch {finetuned_model_configs['epoch']}) Acc: {top1_acc:f}")
     else:
         print(f"=> no checkpoint found at '{save_path}'")
 

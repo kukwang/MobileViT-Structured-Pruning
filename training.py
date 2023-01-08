@@ -42,8 +42,9 @@ def add_arguments(parser):
 
     parser.add_argument('--kd-lambda', default=0.0, type=float, help='lambda in knowledge distillation (default: 0.0)')
     parser.add_argument('--kd-temp', default=4.0, type=float, help='temperature of softmax in knowledge distillation (default: 4.0)')
+    parser.add_argument('--fprune-rate', default=0.0, type=float, help='pruning rate (filter, default: 0.29 (real pr:0.5))')
 
-    parser.add_argument('--resume', default='', help='path of the model in training (default: None)')
+    parser.add_argument('--save-path', default=None, help='save path (default: None)')
 
     return parser
 
@@ -60,7 +61,10 @@ def main(args):
     torch.backends.cudnn.benchmark = False
     
     # model save path
-    save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_dense.pth'
+    if args.save_path is not None:
+        save_path = args.save_path
+    else:
+        save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_dense.pth'
 
     # get datasets
     train_set, val_set, test_set = make_dataset(args)
@@ -71,32 +75,50 @@ def main(args):
     # build model
     model_config = get_model_config(args)
 
-    model = build_MobileVIT(args, model_config).to(args.device)
-    print(f'{args.mode} size MobileViT parameter number:{count_parameters(model)}')
+    if args.fprune_rate > 0:
+        model = build_MobileVIT(args, model_config, pr=True).to(args.device)
+        print(f'pruned {args.mode} size MobileViT parameter number:{count_parameters(model)}')
+
+    else:
+        model = build_MobileVIT(args, model_config).to(args.device)
+        print(f'{args.mode} size MobileViT parameter number:{count_parameters(model)}')
     
     # set criterion and optimizer
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
 
     if not args.test:
         print('Train start')
-        best_train_acc, avg_train_time = train(args, model, train_loader, val_loader, criterion, optimizer, save_path)
+        best_train_acc, avg_train_time = train(args, model, train_loader, val_loader, criterion, optimizer, scheduler, save_path)
         print(f'Best val acc: {best_train_acc:.2f}%    Average training time: {avg_train_time:.2f}s')
 
-    print(f'model size: {get_file_size(save_path)}')
+    get_file_size(save_path)
     
-    print('Test start')
-    if os.path.isfile(save_path):
-        print(f"=> loading checkpoint '{save_path}'")
-        dense_model = torch.load(save_path)
-        top1_acc = dense_model['top1_acc']
-        model.load_state_dict(dense_model['state_dict'])
-        print(f"=> loaded checkpoint '{save_path}' (epoch {dense_model['epoch']}) Acc: {top1_acc:f}")
+    if args.fprune_rate > 0:
+        print('Test start')
+        if os.path.isfile(save_path):
+            print(f"=> loading checkpoint '{save_path}'")
+            pruned_model_configs = torch.load(save_path)
+            sparsity = pruned_model_configs['sparsity']
+            model.load_state_dict(pruned_model_configs['state_dict'])
+            print(f"=> loaded checkpoint '{save_path}' sparsity: {sparsity:f}")
+        else:
+            print(f"=> no checkpoint found at '{save_path}'")
+
     else:
-        print(f"=> no checkpoint found at '{save_path}'")
+        print('Test start')
+        if os.path.isfile(save_path):
+            print(f"=> loading checkpoint '{save_path}'")
+            dense_model_configs = torch.load(save_path)
+            top1_acc = dense_model_configs['top1_acc']
+            model.load_state_dict(dense_model_configs['state_dict'])
+            print(f"=> loaded checkpoint '{save_path}' (epoch {dense_model_configs['epoch']}) Acc: {top1_acc:f}")
+        else:
+            print(f"=> no checkpoint found at '{save_path}'")
 
-
-    test_acc, test_time = test(args, model, test_loader)
+    # test_acc, test_time = test(args, model, test_loader)
+    test_acc, test_time = test_latency(args, model, test_loader)
     print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
 
 if __name__ == '__main__':

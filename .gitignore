@@ -2,6 +2,6 @@
 *.txt
 *.pth
 save
-r1.sh
+*.sh
 test.py
 network_slimming.py

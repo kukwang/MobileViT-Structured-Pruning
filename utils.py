@@ -93,7 +93,7 @@ def make_dataset(args):
            
     return train_set, val_set, test_set
 
-def make_dataloader(args, train_set, test_set, val_set=None):
+def make_dataloader(args, train_set, val_set, test_set):
     # make dataloader
     train_loader = torch.utils.data.DataLoader(train_set,
                                                batch_size=args.train_batch_size,
@@ -118,7 +118,7 @@ def make_dataloader(args, train_set, test_set, val_set=None):
     
     return train_loader, None, test_loader
 
-def train(args, model, train_loader, val_loader, criterion, optimizer, save_path, teacher_model=None, kd_criterion=None):
+def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler, save_path, teacher_model=None, kd_criterion=None):
     best_val_acc = 0
     total_train_time = 0
     
@@ -202,6 +202,7 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, save_path
             val_correct += (predicted == labels).sum().item()
             val_loss += loss.item()
 
+        scheduler.step()
         val_time = time.time() - val_st
         val_acc = val_correct / val_total * 100
         val_loss = val_loss / len(val_loader)
@@ -236,4 +237,30 @@ def test(args, model, testloader):
 
     test_acc = 100 * test_correct / test_total
     test_time = time.time() - test_st 
+    return test_acc, test_time
+
+
+
+def test_latency(args, model, testloader):
+    test_correct, test_total = 0, 0
+    latency = 0
+    with torch.no_grad():
+        model.eval()
+        test_st = time.time() 
+        for _, data in enumerate(testloader):
+            images, labels = data
+            images, labels = images.to(args.device), labels.to(args.device)
+
+            latency_st = time.time()
+            outputs = model(images)
+            latency_ed = time.time() - latency_st
+
+            latency += latency_ed
+            _, pred = torch.max(outputs.data, 1)
+            test_total += labels.size(0)
+            test_correct += (pred == labels).sum().item()
+
+    test_acc = 100 * test_correct / test_total
+    test_time = time.time() - test_st
+    print(f'latency:{latency/len(testloader)}')
     return test_acc, test_time

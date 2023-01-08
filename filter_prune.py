@@ -16,7 +16,7 @@ from utils import *
 def add_arguments(parser):
     dataset_list = ['cifar10', 'cifar100', 'imagenet']
     parser.add_argument('--seed', default=7, type=int, help='random seed (default: 7)')
-    parser.add_argument("--local_rank", default=0, type=int)
+    parser.add_argument('--local_rank', default=0, type=int)
     parser.add_argument('--device', default='cuda', help='device (default: cuda)')
 
     parser.add_argument('data', default='', metavar='DIR', help='path to dataset (default: None)')
@@ -127,8 +127,6 @@ class Masking(object):
 
         inp = torch.randn(128, 3, 256, 256).to(args.device)
 
-        print(pruned_model(inp).size())
-
         total_size = 0
         for name, weight in self.masks.items():
             total_size += weight.numel()
@@ -139,6 +137,8 @@ class Masking(object):
             sparse_size += (weight != 0).sum().int().item()
 
         sparsity = (total_size-sparse_size) / total_size * 100.
+        print('Parameters after pruning: {0}'.format(
+            sparse_size))
         print('Sparsity after pruning: {0:.2f}%'.format(
             sparsity))
 
@@ -256,14 +256,8 @@ def main(args):
 
         # build dataloader
         train_loader, val_loader, test_loader = make_dataloader(args, train_set, val_set, test_set)
-
         print('Test start')
-        test_acc, test_time = test(args, dense_model, test_loader)
-        print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
-
-
-        print('Test start')
-        test_acc, test_time = test(args, pruned_model, test_loader)
+        test_acc, test_time = test_latency(args, pruned_model, test_loader)
         print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
 
 if __name__ == '__main__':
