@@ -145,8 +145,8 @@ def main(args):
         print(f"=> no checkpoint found at '{save_path}'")
 
 
-    test_acc, test_time = test(args, pruned_model, test_loader)
-    print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
+    test_acc, test_time, avg_latency = test_latency(args, pruned_model, test_loader)
+    print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s    Average test latency: {avg_latency:.2f}ms')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MobileViT Finetuning')

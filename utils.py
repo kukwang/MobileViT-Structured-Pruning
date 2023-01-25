@@ -262,5 +262,5 @@ def test_latency(args, model, testloader):
 
     test_acc = 100 * test_correct / test_total
     test_time = time.time() - test_st
-    print(f'latency:{latency/len(testloader)}')
-    return test_acc, test_time
+    avg_latency = latency/len(testloader)*1000  # ms
+    return test_acc, test_time, avg_latency

@@ -100,9 +100,9 @@ def main(args):
         if os.path.isfile(save_path):
             print(f"=> loading checkpoint '{save_path}'")
             pruned_model_configs = torch.load(save_path)
-            sparsity = pruned_model_configs['sparsity']
+            # sparsity = pruned_model_configs['sparsity']
             model.load_state_dict(pruned_model_configs['state_dict'])
-            print(f"=> loaded checkpoint '{save_path}' sparsity: {sparsity:f}")
+            # print(f"=> loaded checkpoint '{save_path}' sparsity: {sparsity:f}")
         else:
             print(f"=> no checkpoint found at '{save_path}'")
 
@@ -118,8 +118,8 @@ def main(args):
             print(f"=> no checkpoint found at '{save_path}'")
 
     # test_acc, test_time = test(args, model, test_loader)
-    test_acc, test_time = test_latency(args, model, test_loader)
-    print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
+    test_acc, test_time, avg_latency = test_latency(args, model, test_loader)
+    print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s    Average test latency: {avg_latency:.2f}ms')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MobileViT Training')

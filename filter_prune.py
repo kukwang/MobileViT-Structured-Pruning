@@ -257,8 +257,8 @@ def main(args):
         # build dataloader
         train_loader, val_loader, test_loader = make_dataloader(args, train_set, val_set, test_set)
         print('Test start')
-        test_acc, test_time = test_latency(args, pruned_model, test_loader)
-        print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s')
+        test_acc, test_time, avg_latency = test_latency(args, pruned_model, test_loader)
+        print(f'Test acc: {test_acc:.2f}%    Test time: {test_time}s    Average test latency: {avg_latency:.2f}ms')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MobileViT Pruning')
