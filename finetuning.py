@@ -43,7 +43,6 @@ def add_arguments(parser):
     parser.add_argument('--test-batch-size', default=1, type=int, help='batch size at inference (default: 1)')
 
     parser.add_argument('--resume', default='', help='path of the model in training (default: None)')
-    parser.add_argument('--dense-model', default='', help='path of the pruned model (default: None)')
     parser.add_argument('--pruned-model', default='', help='path of the pruned model (default: None)')
     parser.add_argument('--fprune-rate', default=0.29, type=float, help='pruning rate (filter, default: 0.29 (real pr:0.5))')
 
