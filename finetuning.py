@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset
 
-from kd_loss import SoftTarget
+# from kd_loss import SoftTarget
 
 from models import build_MobileVIT, get_model_config
 from utils import *
@@ -41,9 +41,6 @@ def add_arguments(parser):
     parser.add_argument('--label-smoothing', default=0.1, type=float, help='label smoothing (default: 0.1)')
     parser.add_argument('--train-batch-size', default=128, type=int, help='batch size at training (default: 128)')
     parser.add_argument('--test-batch-size', default=1, type=int, help='batch size at inference (default: 1)')
-
-    parser.add_argument('--kd-lambda', default=0.0, type=float, help='lambda in knowledge distillation (default: 0.0)')
-    parser.add_argument('--kd-temp', default=4.0, type=float, help='temperature of softmax in knowledge distillation (default: 4.0)')
 
     parser.add_argument('--resume', default='', help='path of the model in training (default: None)')
     parser.add_argument('--dense-model', default='', help='path of the pruned model (default: None)')
@@ -80,20 +77,6 @@ def main(args):
     # build model
     model_config = get_model_config(args)
 
-    if args.kd_lambda > 0.0:
-        # load dense model
-        dense_model = build_MobileVIT(args, model_config).to(args.device)
-        print(f'{args.mode} size dense MobileViT parameter number:{count_parameters(dense_model)}')
-        if args.dense_model:
-            if os.path.isfile(args.dense_model):
-                print(f"=> loading checkpoint '{args.dense_model}'")
-                dense_model_configs = torch.load(args.dense_model)
-                acc = dense_model_configs['top1_acc']
-                dense_model.load_state_dict(dense_model_configs['state_dict'])
-                print(f"=> loaded checkpoint '{args.dense_model}' (epoch {dense_model_configs['epoch']}) Top1_acc: {acc:f}")
-            else:
-                print(f"=> no checkpoint found at '{args.dense_model}'")
-
     # load pruned model
     pruned_model = build_MobileVIT(args, model_config, pr=True).to(args.device)
     print(f'{args.mode} size pr{args.fprune_rate} MobileViT parameter number:{count_parameters(pruned_model)}')
@@ -113,22 +96,8 @@ def main(args):
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
 
-    if args.kd_lambda > 0:
-        # Get loss function for KD
-        kd_criterion = SoftTarget(args.kd_temp)
-
-        print('Finetuning with KD start')
-        if args.save_path is not None:
-            save_path = args.save_path
-        else:
-            save_path = f'./save/mobilevit_{args.mode}_{args.dataset_name}_{args.epoch}ep_pr{args.fprune_rate}_finetuning_kd{args.kd_lambda}.pth'
-
-        best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, scheduler, save_path,
-                                               teacher_model=dense_model, kd_criterion=kd_criterion)
-
-    else:
-        print('Finetuning without KD start')
-        best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, scheduler, save_path)
+    print('Finetuning start')
+    best_train_acc, avg_train_time = train(args, pruned_model, train_loader, val_loader, criterion, optimizer, scheduler, save_path)
 
     print(f'Best val acc: {best_train_acc:.2f}%    Average training time: {avg_train_time:.2f}s')
 

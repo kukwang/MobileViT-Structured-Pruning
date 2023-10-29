@@ -118,7 +118,8 @@ def make_dataloader(args, train_set, val_set, test_set):
     
     return train_loader, None, test_loader
 
-def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler, save_path, teacher_model=None, kd_criterion=None):
+# def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler, save_path, teacher_model=None, kd_criterion=None):
+def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler, save_path):
     best_val_acc = 0
     total_train_time = 0
     
@@ -151,16 +152,16 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler
             outputs = model(inputs)
             normal_loss = criterion(outputs, labels)
 
-            if args.kd_lambda > 0.0:
-                # teacher_outputs = soft_label[i]
-                teacher_outputs = teacher_model(inputs)
-                kd_loss = kd_criterion(outputs, teacher_outputs) * args.kd_lambda
-                loss = normal_loss + kd_loss
+            # if args.kd_lambda > 0.0:
+            #     # teacher_outputs = soft_label[i]
+            #     teacher_outputs = teacher_model(inputs)
+            #     kd_loss = kd_criterion(outputs, teacher_outputs) * args.kd_lambda
+            #     loss = normal_loss + kd_loss
 
-                _, teacher_pred = torch.max(teacher_outputs.data, 1)
-                train_correct_teacher += (teacher_pred == labels).sum().item()
-            else:
-                loss = normal_loss
+            #     _, teacher_pred = torch.max(teacher_outputs.data, 1)
+            #     train_correct_teacher += (teacher_pred == labels).sum().item()
+            # else:
+            loss = normal_loss
 
             _, pred = torch.max(outputs.data, 1)
             train_total += labels.size(0)
@@ -187,15 +188,15 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler
             outputs = model(inputs)
             normal_loss = criterion(outputs, labels)
 
-            if args.kd_lambda > 0.0:
-                teacher_outputs = teacher_model(inputs)
-                kd_loss = kd_criterion(outputs, teacher_outputs) * args.kd_lambda
-                loss = normal_loss + kd_loss
+            # if args.kd_lambda > 0.0:
+            #     teacher_outputs = teacher_model(inputs)
+            #     kd_loss = kd_criterion(outputs, teacher_outputs) * args.kd_lambda
+            #     loss = normal_loss + kd_loss
 
-                _, teacher_pred = torch.max(teacher_outputs.data, 1)
-                val_correct_teacher += (teacher_pred == labels).sum().item()
-            else:
-                loss = normal_loss
+            #     _, teacher_pred = torch.max(teacher_outputs.data, 1)
+            #     val_correct_teacher += (teacher_pred == labels).sum().item()
+            # else:
+            loss = normal_loss
 
             _, predicted = torch.max(outputs.data, 1)
             val_total += labels.size(0)
@@ -208,8 +209,8 @@ def train(args, model, train_loader, val_loader, criterion, optimizer, scheduler
         val_loss = val_loss / len(val_loader)
         print(f'epoch: {epoch + 1}    train_acc: {train_acc:.2f}%   train_loss: {train_loss:.2f}    train_time: {train_time:.2f}s    \
             val_acc: {val_acc:.2f}%    val_loss: {val_loss:.2f}    val_time: {val_time:.2f}s')
-        if args.kd_lambda > 0:
-            print(f'[teacher]    train acc: {train_correct_teacher / train_total * 100}  val acc:{val_correct_teacher / val_total * 100}')
+        # if args.kd_lambda > 0:
+        #     print(f'[teacher]    train acc: {train_correct_teacher / train_total * 100}  val acc:{val_correct_teacher / val_total * 100}')
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc

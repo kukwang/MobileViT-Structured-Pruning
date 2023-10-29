@@ -1,7 +1,6 @@
 *.pyc
 *.txt
 *.pth
-save
 *.sh
-test.py
-network_slimming.py
+
+save

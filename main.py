@@ -40,8 +40,6 @@ def add_arguments(parser):
     parser.add_argument('--train-batch-size', default=128, type=int, help='batch size at training (default: 128)')
     parser.add_argument('--test-batch-size', default=1, type=int, help='batch size at inference (default: 1)')
 
-    parser.add_argument('--kd-lambda', default=0.0, type=float, help='lambda in knowledge distillation (default: 0.0)')
-    parser.add_argument('--kd-temp', default=4.0, type=float, help='temperature of softmax in knowledge distillation (default: 4.0)')
     parser.add_argument('--fprune-rate', default=0.0, type=float, help='pruning rate (filter, default: 0.29 (real pr:0.5))')
 
     parser.add_argument('--save-path', default=None, help='save path (default: None)')
