@@ -4,6 +4,18 @@
 
 Apply filter pruning to MobileViT specified in ["MobileViT: Light-weight, General-purpose, and Mobile-friendly Vision Transformer"](https://arxiv.org/abs/2110.02178).
 
+## Experimental results
+
+I experimented on CIFAR-10 using one GeForce RTX 3090. I applied filter pruning to the pretrained MobileVIT and finetuned it for 200 epochs.
+
+| pruning rate  | acc  | params | latency |
+|:-------------:|:----:|:------:|:-------:|
+| 0 %  | 89.69 % | 5.00 M | 11.44 ms |
+| 20 % | 90.10 % | 4.01 M | 11.02 ms |
+| 40 % | 89.73 % | 3.03 M | 11.00 ms |
+| 60 % | 89.60 % | 2.06 M | 9.75 ms |
+| 80 % | 88.51 % | 1.09 M | 9.37 ms |
+
 ## Usage
 
 #### Pruning
