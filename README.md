@@ -34,4 +34,4 @@ python3 main.py /path/to/dataset --classes 10 --dataset-name cifar10 --model-con
 ```
 
 ## Acknowledgements
-Our code is based on [ml-cvnets](https://github.com/apple/ml-cvnets).
+This code is based on [ml-cvnets](https://github.com/apple/ml-cvnets).
