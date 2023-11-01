@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Apply filter pruning to MobileViT specified in ["MobileViT: Light-weight, General-purpose, and Mobile-friendly Vision Transformer"](https://arxiv.org/abs/2110.02178).
+Apply [filter pruning](https://arxiv.org/pdf/1608.08710.pdf) to MobileViT specified in ["MobileViT: Light-weight, General-purpose, and Mobile-friendly Vision Transformer"](https://arxiv.org/abs/2110.02178).
 
 ## Experimental results
 
