@@ -6,7 +6,7 @@ Apply [filter pruning](https://arxiv.org/pdf/1608.08710.pdf) to MobileViT specif
 
 ## Experimental results
 
-I experimented on CIFAR-10 using one GeForce RTX 3090. I applied filter pruning to the pretrained MobileVIT and finetuned it for 200 epochs.
+I experimented on CIFAR-10 using one GeForce RTX 3090. I applied filter pruning to the pretrained MobileViT and finetuned it for 200 epochs.
 
 | pruning rate  | acc  | params | latency |
 |:-------------:|:----:|:------:|:-------:|
