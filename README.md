@@ -42,4 +42,4 @@ python3 main.py /path/to/dataset --classes 10 --dataset-name cifar10 \
 ```
 
 ## Acknowledgements
-This code is based on [ml-cvnets](https://github.com/apple/ml-cvnets).
+This code is based on [mobilevit-pytorch](https://github.com/chinhsuanwu/mobilevit-pytorch).
